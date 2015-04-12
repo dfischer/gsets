@@ -1,0 +1,10 @@
+{application, gset,
+ [
+  {description, "Godel sets"}, % Gödel breaks something
+  {vsn, "0.1.0"},
+  {registered, []},
+  {applications,
+   [kernel, stdlib]},
+  {env,[]},
+  {modules, [gset, uod, primes]}
+ ]}.
