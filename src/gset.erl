@@ -36,9 +36,9 @@ is_set(_) ->
 
 %% this cannot be supported without factoring, which is rather
 %% expensive (intractably so for large sets), so we punt.
--spec size(gset()) -> unknown.
+-spec size(gset()) -> no_return().
 size(_) ->
-    unknown.
+    error(no).
 
 %% see size/1 for the reasons we cannot do this.
 -spec to_list(gset()) -> no.
@@ -48,12 +48,12 @@ to_list(_) ->
 %% see size/1
 -spec fold(_, _, _) -> no.
 fold(_, _, _) ->
-    no.
+    error(no).
 
 %% see size/1
 -spec filter(_, _) -> no.
 filter(_, _) ->
-    no.
+    error(no).
 
 -spec from_list([term()]) -> gset().
 from_list(List) ->
@@ -130,14 +130,13 @@ subtract(#gset{set = A}, #gset{set = B}) ->
     #gset{set = A div gcd(A, B)}.
 
 -spec is_subset(gset(), gset()) -> boolean().
-is_subset(#gset{set = A0}, B) ->
-    A = uod:to_dterm(A0),
-    is_element(A, B).
+is_subset(#gset{set = A}, #gset{set = B}) ->
+    (A rem B) == 0.
 
 -spec is_disjoint(gset(), gset()) -> boolean().
 is_disjoint(A, B) ->
     case intersection(A, B) of
-        #gset{set = 1} ->
+        #gset{} ->
             true;
         _ ->
             false
@@ -183,6 +182,9 @@ basic_test() ->
     ?assert(false == is_element(A, AIB)).
 
 basic_props_test() ->
-    ?assert(proper:quickcheck(gset_props:statem())).
+    ProperRes = proper:quickcheck(gset_props:statem(),
+                                  [{to_file, user}, %noshrink,
+                                   {numtests, 1000}]),
+    ?assert(ProperRes).
 
 -endif.

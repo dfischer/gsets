@@ -25,8 +25,17 @@ call(M) ->
 add_element(Elt) ->
     call({add_element, Elt}).
 
+del_element(Elt) ->
+    call({del_element, Elt}).
+
 intersection(Elts) ->
     call({intersection, Elts}).
+
+%% not sure that this is needed
+is_subset([]) ->
+    {false, sets:new()};
+is_subset(Elts) ->
+    call({is_subset, Elts}).
 
 get_universe() ->
     call(get_universe).
@@ -51,12 +60,24 @@ init([]) ->
 handle_call({add_element, Elt}, _, State) ->
     {P, UoD} = uod:add_term(Elt, State#state.uod),
     S = gset:add_element(P, State#state.set),
-    {reply, ok, State#state{uod = UoD, set = S}};
+    io:fwrite(user, "add ~p ~p~n", [UoD, S]),
+    {reply, {ok, S}, State#state{uod = UoD, set = S}};
+handle_call({del_element, Elt}, _, State) ->
+    case uod:get_dterm(Elt, State#state.uod) of
+        {ok, DTerm} ->
+            io:fwrite(user, "del found ", []),
+            S = gset:del_element(DTerm, State#state.set);
+        _ ->
+            io:fwrite(user, "del not found", []),
+            S = State#state.set
+    end,
+    io:fwrite(user, "~p~n", [S]),
+    {reply, {ok, S}, State#state{set = S}};
 handle_call({intersection, Elts}, _, State) ->
     {GSet, Set} =
         lists:foldl(
           fun(Term, {G, S}) ->
-                  DTerm = uod:get_dterm(Term, State#state.uod),
+                  {ok, DTerm} = uod:get_dterm(Term, State#state.uod),
                   G1 = gset:add_element(DTerm, G),
                   S1 = sets:add_element(Term, S),
                   {G1, S1}
@@ -67,6 +88,27 @@ handle_call({intersection, Elts}, _, State) ->
     %% reply is the result + the set equivalent so that the model's
     %% backing set can be intersected in the postcondition
     Reply = {Res, Set},
+    {reply, Reply, State};
+handle_call({is_subset, Elts}, _, State) ->
+    io:fwrite(user, "subu ~p ~p ~n", [State, Elts]),
+    UoD = State#state.uod,
+    Reply =
+        try
+            {GSet, Set, _U1} =
+                lists:foldl(
+                  fun(Term, {G, S, U}) ->
+                          {DTerm, U1} = uod:get_dterm(Term, U),
+                          G1 = gset:add_element(DTerm, G),
+                          S1 = sets:add_element(Term, S),
+                          {G1, S1, U1}
+                  end,
+                  {gset:new(), sets:new(), UoD},
+                  Elts),
+            Res = gset:is_subset(GSet, State#state.set),
+            {Res, Set}
+        catch _:_ ->
+                {false, sets:add_element('unlikely sentinel', sets:new())}
+        end,
     {reply, Reply, State};
 handle_call(get_universe, _, State) ->
     %% this copies the whole thing, which might be slow.  do we need
