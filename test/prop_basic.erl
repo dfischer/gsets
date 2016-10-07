@@ -27,9 +27,9 @@ prop_test() ->
           begin
               put(mark_time, undefined),
               mark("pre"),
-              gset_srv:start_link(),
+              gsets_srv:start_link(),
               {History, State, Result} = run_commands(?MODULE, Cmds),
-              gset_srv:stop(),
+              gsets_srv:stop(),
               mark("serv stop"),
               ?WHENFAIL(io:fwrite(user,
                                   "\nHistory: ~w\n"
@@ -71,7 +71,7 @@ tks(_L, 0, Acc) ->
 tks([], _, Acc) ->
     Acc;
 tks([H|T], Take, Acc) ->
-    case random:uniform(2) of
+    case rand:uniform(2) of
         1 ->
             tks(T, Take - 1, [H|Acc]);
         _ ->
@@ -100,7 +100,7 @@ mark(Marker) ->
     put(mark_time, now()).
 
 
-%% model stuffz
+%% model stuff
 
 initial_state() ->
     mark("init"),
@@ -110,23 +110,34 @@ initial_state() ->
 command(S) ->
     frequency(
       [
-       {20, {call, gset_srv, add_element, [value()]}},
-       {2, {call, gset_srv, del_element, [value()]}}
-      ] ++
-      [{5, {call, gset_srv, add_element, [take_random(uod:terms(S#s.uod))]}}
-       || uod:terms(S#s.uod) /= []] ++
-      [{2, {call, gset_srv, intersection, [make_set(uod:terms(S#s.uod))]}}
-       || uod:terms(S#s.uod) /= []] ++
-          %% this is too much work to postcondition right now
-      %% [{1, {call, gset_srv, intersection,
-      %%       [make_set(S#s.elements)
-      %%        || _ <- lists:seq(1, rand:unform(10))]}}
-      %%  || S#s.elements /= []] ++
-      [{2, {call, gset_srv, is_subset, [make_set(uod:terms(S#s.uod))]}}
-       || uod:terms(S#s.uod) /= []] ++
-      [{5, {call, gset_srv, del_element, [take_random(uod:terms(S#s.uod))]}}
-       || uod:terms(S#s.uod) /= []]
-
+       {10, {call, gsets_srv, add_element, [value()]}},
+       {5, {call, gsets_srv, del_element, [value()]}}
+      ]
+      ++ [{2, {call, gsets_srv, add_element, [take_random(uod:terms(S#s.uod))]}}
+          || uod:terms(S#s.uod) /= []]
+      ++ [{2, {call, gsets_srv, intersection, [make_set(uod:terms(S#s.uod))]}}
+           || uod:terms(S#s.uod) /= []]
+      ++ [{2, {call, gsets_srv, is_subset, [make_set(uod:terms(S#s.uod))]}}
+           || uod:terms(S#s.uod) /= []]
+      %% union
+      ++ [{2, {call, gsets_srv, union, [make_set(uod:terms(S#s.uod))]}}
+          || uod:terms(S#s.uod) /= []]
+      %% union with extras
+      ++ [{2, {call, gsets_srv, union, [make_set(uod:terms(S#s.uod)) ++
+                   [value() || _ <- lists:seq(1, rand:uniform(40))]]
+              }}
+          || uod:terms(S#s.uod) /= []]
+      %% is_disjoint unlikely
+      %% [{5, {call, gsets_srv, del_element, [take_random(uod:terms(S#s.uod))]}}
+      %%  || uod:terms(S#s.uod) /= []]
+      %% is_disjoint likely
+      %% [{5, {call, gsets_srv, del_element, [take_random(uod:terms(S#s.uod))]}}
+      %%  || uod:terms(S#s.uod) /= []]
+      %% subtract
+      %% [{5, {call, gsets_srv, del_element, [take_random(uod:terms(S#s.uod))]}}
+      %%  || uod:terms(S#s.uod) /= []]
+      ++ [{5, {call, gsets_srv, del_element, [take_random(uod:terms(S#s.uod))]}}
+          || uod:terms(S#s.uod) /= []]
      ).
 
 
@@ -151,11 +162,11 @@ precondition(_, _) ->
 
 postcondition(S, {call, _, add_element, [Val]}, {ok, Set}) ->
     {DTerm, _} = uod:add_term(Val, S#s.uod),
-    true =:= gset:is_element(DTerm, Set);
+    true =:= gsets:is_element(DTerm, Set);
 postcondition(S, {call, _, del_element, [Val]}, {ok, Set}) ->
     case uod:get_dterm(Val, S#s.uod) of
         {ok, DTerm} ->
-            false =:= gset:is_element(DTerm, Set);
+            false =:= gsets:is_element(DTerm, Set);
         _ ->
             %% trivially true
             true
@@ -164,12 +175,22 @@ postcondition(S, {call, _, intersection, _}, {Res, Set}) ->
     Comp = sets:intersection(S#s.set, Set),
     Res2 = lists:foldl(fun(Term, Acc) ->
                                {ok, DTerm} = uod:get_dterm(Term, S#s.uod),
-                               gset:del_element(DTerm, Acc)
+                               gsets:del_element(DTerm, Acc)
                        end,
                        Res,
                        sets:to_list(Comp)),
     %% new gsets are empty gsets
-    gset:new() =:= Res2;
+    gsets:new() =:= Res2;
+postcondition(S, {call, _, union, _}, {Res, Set}) ->
+    Comp = sets:union(S#s.set, Set),
+    Res2 = lists:foldl(fun(Term, {G, U}) ->
+                               {DTerm, U1} = uod:add_term(Term, U),
+                               {gsets:add_element(DTerm, G), U1}
+                       end,
+                       Res,
+                       {sets:to_list(Comp), S#s.uod}),
+    %% new gsets are empty gsets
+    gsets:new() =:= Res2;
 postcondition(S, {call, _, is_subset, _}, {Res, Set}) ->
     io:format("set ~p~n", [S#s.set]),
     Comp = sets:is_subset(Set, S#s.set),

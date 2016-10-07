@@ -1,4 +1,4 @@
--module(gset_srv).
+-module(gsets_srv).
 
 -behaviour(gen_server).
 
@@ -16,7 +16,7 @@
 -record(state,
         {
           uod = uod:new() :: uod:uod(),
-          set = gset:new() :: gset:gset()
+          set = gsets:new() :: gsets:gsets()
         }).
 
 call(M) ->
@@ -30,6 +30,9 @@ del_element(Elt) ->
 
 intersection(Elts) ->
     call({intersection, Elts}).
+
+union(Elts) ->
+    call({union, Elts}).
 
 %% not sure that this is needed
 is_subset([]) ->
@@ -59,14 +62,14 @@ init([]) ->
 
 handle_call({add_element, Elt}, _, State) ->
     {P, UoD} = uod:add_term(Elt, State#state.uod),
-    S = gset:add_element(P, State#state.set),
+    S = gsets:add_element(P, State#state.set),
     io:fwrite(user, "add ~p ~p~n", [UoD, S]),
     {reply, {ok, S}, State#state{uod = UoD, set = S}};
 handle_call({del_element, Elt}, _, State) ->
     case uod:get_dterm(Elt, State#state.uod) of
         {ok, DTerm} ->
             io:fwrite(user, "del found ", []),
-            S = gset:del_element(DTerm, State#state.set);
+            S = gsets:del_element(DTerm, State#state.set);
         _ ->
             io:fwrite(user, "del not found", []),
             S = State#state.set
@@ -78,15 +81,29 @@ handle_call({intersection, Elts}, _, State) ->
         lists:foldl(
           fun(Term, {G, S}) ->
                   {ok, DTerm} = uod:get_dterm(Term, State#state.uod),
-                  G1 = gset:add_element(DTerm, G),
+                  G1 = gsets:add_element(DTerm, G),
                   S1 = sets:add_element(Term, S),
                   {G1, S1}
           end,
-          {gset:new(), sets:new()},
+          {gsets:new(), sets:new()},
           Elts),
-    Res = gset:intersection(GSet, State#state.set),
+    Res = gsets:intersection(GSet, State#state.set),
     %% reply is the result + the set equivalent so that the model's
     %% backing set can be intersected in the postcondition
+    Reply = {Res, Set},
+    {reply, Reply, State};
+handle_call({union, Elts}, _, State) ->
+    {GSet, Set, _} =
+        lists:foldl(
+          fun(Term, {G, S, U}) ->
+                  {DTerm, U1} = uod:add_term(Term, U),
+                  G1 = gsets:add_element(DTerm, G),
+                  S1 = sets:add_element(Term, S),
+                  {G1, S1, U1}
+          end,
+          {gsets:new(), sets:new(), State#state.uod},
+          Elts),
+    Res = gsets:union(GSet, State#state.set),
     Reply = {Res, Set},
     {reply, Reply, State};
 handle_call({is_subset, Elts}, _, State) ->
@@ -97,14 +114,14 @@ handle_call({is_subset, Elts}, _, State) ->
             {GSet, Set, _U1} =
                 lists:foldl(
                   fun(Term, {G, S, U}) ->
-                          {DTerm, U1} = uod:get_dterm(Term, U),
-                          G1 = gset:add_element(DTerm, G),
+                          {DTerm, U1} = uod:add_term(Term, U),
+                          G1 = gsets:add_element(DTerm, G),
                           S1 = sets:add_element(Term, S),
                           {G1, S1, U1}
                   end,
-                  {gset:new(), sets:new(), UoD},
+                  {gsets:new(), sets:new(), UoD},
                   Elts),
-            Res = gset:is_subset(GSet, State#state.set),
+            Res = gsets:is_subset(GSet, State#state.set),
             {Res, Set}
         catch _:_ ->
                 {false, sets:add_element('unlikely sentinel', sets:new())}
